@@ -13,13 +13,13 @@ env:
 
 jobs:
   deploy:
-    name: Build and Deploy to EKS
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # ---------------- AWS LOGIN ----------------
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -27,76 +27,66 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
+    - name: Debug AWS Identity
+      run: aws sts get-caller-identity
+
+    # ---------------- ECR LOGIN ----------------
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build, tag, and push image to Amazon ECR
+    # ---------------- BUILD & PUSH IMAGE ----------------
+    - name: Build and Push Docker Image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "Building Docker image..."
+        echo "Building image..."
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
-        echo "Pushing image to ECR..."
+        echo "Pushing image..."
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        
-        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_OUTPUT
-        echo "ECR_REGISTRY=$ECR_REGISTRY" >> $GITHUB_OUTPUT
 
+    # ---------------- INSTALL KUBECTL ----------------
     - name: Install kubectl
       uses: azure/setup-kubectl@v3
       with:
-        version: 'v1.28.0'
+        version: v1.28.0
 
-    - name: Update kubeconfig for EKS
+    # ---------------- UPDATE KUBECONFIG ----------------
+    - name: Update kubeconfig
       run: |
         aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
-        kubectl version --client
 
+    - name: Debug kubeconfig
+      run: |
+        kubectl config get-contexts
+        kubectl cluster-info
+
+    # ---------------- VERIFY CLUSTER ACCESS ----------------
     - name: Verify cluster connection
       run: |
         kubectl get nodes
         kubectl get namespaces
 
+    # ---------------- DEPLOY TO EKS ----------------
     - name: Deploy to EKS
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        echo "Updating deployment manifests..."
+        echo "Updating deployment image..."
         sed -i "s|<ECR_REGISTRY>/<ECR_REPOSITORY>:latest|$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s/deployment.yaml
-        
-        echo "Applying Kubernetes manifests..."
+
+        echo "Applying manifests..."
         kubectl apply -f k8s/
-        
-        echo "Waiting for deployment to complete..."
+
         kubectl rollout status deployment/nodejs-api --timeout=5m
-        
-        echo "Deployment successful!"
 
-    - name: Get service information
+    # ---------------- SERVICE INFO ----------------
+    - name: Get Service Info
       run: |
-        echo "Getting service details..."
-        kubectl get services nodejs-api-service
-        kubectl get pods -l app=nodejs-api
-        
-        echo "Waiting for LoadBalancer URL..."
-        sleep 30
-        kubectl get service nodejs-api-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-
-    - name: Display deployment summary
-      run: |
-        echo "=== Deployment Summary ==="
-        echo "Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
-        echo "Cluster: $EKS_CLUSTER_NAME"
-        echo "Region: $AWS_REGION"
-        echo ""
-        echo "=== Pods ==="
-        kubectl get pods -l app=nodejs-api
-        echo ""
-        echo "=== Service ==="
-        kubectl get service nodejs-api-service
+        kubectl get pods
+        kubectl get svc
