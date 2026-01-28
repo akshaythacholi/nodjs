@@ -100,3 +100,4 @@ See the GitHub Actions workflow in `.github/workflows/deploy.yml` for automated 
 ## License
 
 MIT
+.
