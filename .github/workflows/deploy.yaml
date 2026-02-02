@@ -1,3 +1,4 @@
+cat > .github/workflows/deploy.yaml <<'EOF'
 name: Deploy to EKS
 
 on:
@@ -81,8 +82,31 @@ jobs:
 
     - name: Verify cluster connection
       run: |
-        kubectl get nodes
-        kubectl get namespaces
+        echo "Attempting to connect to EKS cluster..."
+        # Retry logic - sometimes aws-auth changes take a moment to propagate
+        MAX_RETRIES=5
+        RETRY_COUNT=0
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          echo "Attempt $((RETRY_COUNT + 1)) of $MAX_RETRIES..."
+          
+          if kubectl get nodes; then
+            echo "Successfully connected to cluster!"
+            kubectl get namespaces
+            exit 0
+          else
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+              echo "Connection failed. Waiting 30 seconds before retry..."
+              sleep 30
+              # Refresh the token
+              aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+            fi
+          fi
+        done
+        
+        echo "Failed to connect to cluster after $MAX_RETRIES attempts"
+        exit 1
 
     - name: Deploy to EKS
       env:
@@ -122,3 +146,4 @@ jobs:
         echo ""
         echo "=== Service ==="
         kubectl get service nodejs-api-service
+EOF
