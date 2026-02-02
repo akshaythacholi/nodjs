@@ -1,4 +1,3 @@
-cat > .github/workflows/deploy.yaml <<'EOF'
 name: Deploy to EKS
 
 on:
