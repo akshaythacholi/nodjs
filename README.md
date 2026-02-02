@@ -97,7 +97,7 @@ See the GitHub Actions workflow in `.github/workflows/deploy.yml` for automated 
 - `PORT` - Server port (default: 3000)
 - `NODE_ENV` - Environment mode (development/production)
 
-## License
+## License.
 
 MIT
 .
