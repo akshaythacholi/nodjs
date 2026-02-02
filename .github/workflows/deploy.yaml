@@ -145,4 +145,3 @@ jobs:
         echo ""
         echo "=== Service ==="
         kubectl get service nodejs-api-service
-EOF
